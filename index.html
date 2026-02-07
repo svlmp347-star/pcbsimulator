@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BitTrace - AI-Driven PCB Design</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        /* Animations */
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(99, 102, 241, 0.6); }
+        }
+        
+        @keyframes scanline {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(100%); }
+        }
+
+        .animate-pulse-glow { animation: pulse-glow 2s infinite; }
+        
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .circuit-grid {
+            background-image: 
+                linear-gradient(rgba(99, 102, 241, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(99, 102, 241, 0.1) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        .thinking-cursor::after {
+            content: '|';
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .component-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .component-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+
+        .component-card.selected {
+            border-color: #6366f1;
+            background: rgba(99, 102, 241, 0.1);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3);
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+            background-size: 200% 100%;
+            animation: gradient-shift 2s linear infinite;
+        }
+
+        @keyframes gradient-shift {
+            0% { background-position: 100% 0; }
+            100% { background-position: -100% 0; }
+        }
+
+        .log-entry {
+            animation: slide-in 0.3s ease-out;
+        }
+
+        @keyframes slide-in {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .trace-line {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            animation: draw-line 2s ease-out forwards;
+        }
+
+        @keyframes draw-line {
+            to { stroke-dashoffset: 0; }
+        }
+
+        /* 3D Viewer Container */
+        #pcb-viewer {
+            background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+        }
+
+        .layer-btn.active {
+            background: rgba(99, 102, 241, 0.2);
+            border-color: #6366f1;
+            color: #818cf8;
+        }
+
+        .manufacturing-step {
+            position: relative;
+            padding-left: 2rem;
+        }
+
+        .manufacturing-step::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0.5rem;
+            width: 0.75rem;
+            height: 0.75rem;
+            border-radius: 50%;
+            background: #334155;
+            border: 2px solid #475569;
+        }
+
+        .manufacturing-step.completed::before {
+            background: #10b981;
+            border-color: #10b981;
+        }
+
+        .manufacturing-step::after {
+            content: '';
+            position: absolute;
+            left: 0.375rem;
+            top: 1.25rem;
+            width: 2px;
+            height: calc(100% - 1rem);
+            background: #334155;
+        }
+
+        .manufacturing-step:last-child::after {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 overflow-x-hidden">
+
+    <!-- Navigation -->
+    <nav class="fixed top-0 w-full z-50 glass-panel border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">BitTrace</h1>
+                    <p class="text-xs text-slate-400">AI-Driven EDA Platform</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-6">
+                <div class="hidden md:flex items-center gap-4 text-sm">
+                    <button onclick="showPage('design')" class="text-slate-300 hover:text-white transition-colors">Design</button>
+                    <button onclick="showPage('viewer')" class="text-slate-300 hover:text-white transition-colors">Viewer</button>
+                    <button onclick="showPage('manufacturing')" class="text-slate-300 hover:text-white transition-colors">Manufacturing</button>
+                </div>
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    System Online
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="pt-20 min-h-screen">
+        
+        <!-- Landing Page -->
+        <section id="page-landing" class="page-section">
+            <div class="relative overflow-hidden">
+                <!-- Background Effects -->
+                <div class="absolute inset-0 circuit-grid opacity-30"></div>
+                <div class="absolute top-0 left-1/4 w-96 h-96 bg-indigo-500/20 rounded-full blur-3xl"></div>
+                <div class="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl"></div>
+
+                <div class="relative max-w-7xl mx-auto px-6 py-24 sm:py-32">
+                    <div class="text-center max-w-4xl mx-auto">
+                        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mb-8 animate-pulse-glow">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                            </svg>
+                            <span class="text-sm font-medium">Powered by Kimi K2.5 Researcher</span>
+                        </div>
+                        
+                        <h1 class="text-6xl sm:text-8xl font-bold tracking-tight mb-6">
+                            <span class="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">BitTrace</span>
+                        </h1>
+                        <p class="text-xl text-slate-400 max-w-2xl mx-auto mb-12 leading-relaxed">
+                            Transform hardware descriptions into industry-grade PCB manufacturing files. 
+                            From concept to Gerber in minutes, not days.
+                        </p>
+                        
+                        <div class="flex flex-col sm:flex-row gap-4 justify-center mb-16">
+                            <button onclick="startDesign()" class="group px-8 py-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 transition-all font-semibold text-lg flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40">
+                                <svg class="w-5 h-5 group-hover:rotate-12 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
+                                </svg>
+                                Start Designing
+                            </button>
+                            <button onclick="showPage('viewer')" class="px-8 py-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition-all font-semibold text-lg border border-slate-700 hover:border-slate-600 flex items-center justify-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                </svg>
+                                View Demo
+                            </button>
+                        </div>
+
+                        <!-- Stats -->
+                        <div class="grid grid-cols-3 gap-8 max-w-2xl mx-auto">
+                            <div class="text-center">
+                                <div class="text-3xl font-bold text-white mb-1">30s</div>
+                                <div class="text-sm text-slate-500">Avg. Generation</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-3xl font-bold text-white mb-1">99.9%</div>
+                                <div class="text-sm text-slate-500">ERC Pass Rate</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-3xl font-bold text-white mb-1">50k+</div>
+                                <div class="text-sm text-slate-500">Components</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Features Grid -->
+            <div class="max-w-7xl mx-auto px-6 py-24 border-t border-slate-800">
+                <div class="grid md:grid-cols-3 gap-8">
+                    <div class="p-8 rounded-2xl bg-slate-900/50 border border-slate-800 hover:border-indigo-500/50 transition-all group">
+                        <div class="w-14 h-14 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 mb-6 group-hover:scale-110 transition-transform">
+                            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-3">Intelligent Research</h3>
+                        <p class="text-slate-400 leading-relaxed">Kimi K2.5 Researcher validates component specs in real-time, checking voltage levels, pinouts, and supply chain availability.</p>
+                    </div>
+
+                    <div class="p-8 rounded-2xl bg-slate-900/50 border border-slate-800 hover:border-purple-500/50 transition-all group">
+                        <div class="w-14 h-14 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400 mb-6 group-hover:scale-110 transition-transform">
+                            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-3">Automated Layout</h3>
+                        <p class="text-slate-400 leading-relaxed">SKiDL generates netlists with EE best practices: decoupling caps, flyback diodes, matched trace lengths, and EMI optimization.</p>
+                    </div>
+
+                    <div class="p-8 rounded-2xl bg-slate-900/50 border border-slate-800 hover:border-pink-500/50 transition-all group">
+                        <div class="w-14 h-14 rounded-xl bg-pink-500/10 flex items-center justify-center text-pink-400 mb-6 group-hover:scale-110 transition-transform">
+                            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"/>
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-3">3D Visualization</h3>
+                        <p class="text-slate-400 leading-relaxed">Interactive Three.js viewer renders your PCB in real-time with component models, trace routing, and manufacturing previews.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Design Page -->
+        <section id="page-design" class="page-section hidden">
+            <div class="max-w-7xl mx-auto px-6 py-12">
+                <div class="mb-8">
+                    <h1 class="text-3xl font-bold mb-2">New PCB Design</h1>
+                    <p class="text-slate-400">Configure your hardware components and let BitTrace generate manufacturing files.</p>
+                </div>
+
+                <div class="grid lg:grid-cols-3 gap-8">
+                    <!-- Configuration Panel -->
+                    <div class="lg:col-span-2 space-y-6">
+                        <!-- Project Name -->
+                        <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+                            <label class="block text-sm font-medium text-slate-400 mb-2">Project Name</label>
+                            <input type="text" id="project-name" value="Smart Grain ATM" 
+                                class="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-colors text-white placeholder-slate-500">
+                        </div>
+
+                        <!-- Component Selection -->
+                        <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+                            <h3 class="text-lg font-semibold mb-6 flex items-center gap-2">
+                                <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+                                </svg>
+                                Component Selection
+                            </h3>
+                            
+                            <div class="grid sm:grid-cols-2 gap-4" id="component-grid">
+                                <!-- Components injected by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Requirements -->
+                        <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+                            <label class="block text-sm font-medium text-slate-400 mb-2">Design Requirements</label>
+                            <textarea rows="3" 
+                                class="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-colors text-white resize-none"
+                                placeholder="Describe your project requirements...">Smart grain dispensing system with RFID authentication, load cell accuracy up to 50kg, IoT connectivity, and offline operation capability.</textarea>
+                        </div>
+                    </div>
+
+                    <!-- Generation Panel -->
+                    <div class="space-y-6">
+                        <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800 sticky top-24">
+                            <h3 class="text-lg font-semibold mb-6">Generation Status</h3>
+                            
+                            <div class="space-y-4 mb-6 text-sm">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-slate-400">Components</span>
+                                    <span class="font-medium text-white" id="selected-count">0 selected</span>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-slate-400">Est. Time</span>
+                                    <span class="font-medium text-white">~30 seconds</span>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-slate-400">Output</span>
+                                    <span class="font-medium text-emerald-400">KiCad 9.0 + Gerber</span>
+                                </div>
+                            </div>
+
+                            <button onclick="generatePCB()" id="generate-btn"
+                                class="w-full py-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:cursor-not-allowed transition-all font-semibold flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/25">
+                                <svg id="generate-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+                                </svg>
+                                <span id="generate-text">Generate PCB</span>
+                            </button>
+
+                            <!-- Progress Section -->
+                            <div id="progress-section" class="hidden mt-6">
+                                <div class="h-2 bg-slate-800 rounded-full overflow-hidden mb-4">
+                                    <div id="progress-bar" class="progress-bar h-full w-0 transition-all duration-500"></div>
+                                </div>
+                                <div id="log-container" class="space-y-2 max-h-48 overflow-y-auto text-xs mono">
+                                    <!-- Logs injected here -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Design Notes -->
+                        <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                            <div class="flex gap-3">
+                                <svg class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                                </svg>
+                                <div class="text-sm text-amber-200">
+                                    <p class="font-medium mb-1">Design Notes</p>
+                                    <p class="opacity-80">High-current servo motors require 2.5A peak. RF module uses 3.3V logic—level shifters included automatically.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3D Viewer Page -->
+        <section id="page-viewer" class="page-section hidden">
+            <div class="h-[calc(100vh-80px)] flex">
+                <!-- 3D Canvas -->
+                <div class="flex-1 relative" id="pcb-viewer">
+                    <canvas id="three-canvas" class="w-full h-full block"></canvas>
+                    
+                    <!-- Overlay Controls -->
+                    <div class="absolute bottom-6 left-6 flex gap-2">
+                        <button onclick="toggleLayer('traces')" id="btn-traces" class="layer-btn active px-4 py-2 rounded-lg backdrop-blur-sm border border-slate-700 bg-slate-900/80 text-slate-300 text-sm font-medium transition-all">
+                            Traces
+                        </button>
+                        <button onclick="toggleLayer('top')" id="btn-top" class="layer-btn active px-4 py-2 rounded-lg backdrop-blur-sm border border-slate-700 bg-slate-900/80 text-slate-300 text-sm font-medium transition-all">
+                            Top Layer
+                        </button>
+                        <button onclick="toggleLayer('bottom')" id="btn-bottom" class="layer-btn px-4 py-2 rounded-lg backdrop-blur-sm border border-slate-700 bg-slate-900/80 text-slate-300 text-sm font-medium transition-all">
+                            Bottom Layer
+                        </button>
+                        <button onclick="resetView()" class="px-4 py-2 rounded-lg backdrop-blur-sm border border-slate-700 bg-slate-900/80 text-slate-300 text-sm font-medium hover:bg-slate-800 transition-all">
+                            Reset View
+                        </button>
+                    </div>
+
+                    <!-- Component Tooltip -->
+                    <div id="component-tooltip" class="hidden absolute pointer-events-none bg-slate-900/95 border border-slate-700 rounded-lg p-3 shadow-xl z-10 max-w-xs">
+                        <div class="font-semibold text-white mb-1" id="tooltip-name">Component</div>
+                        <div class="text-xs text-slate-400 mono" id="tooltip-id">U1</div>
+                        <div class="text-xs text-slate-500 mt-1" id="tooltip-pos">Position: (0, 0)</div>
+                    </div>
+                </div>
+
+                <!-- Sidebar -->
+                <div class="w-80 border-l border-slate-800 bg-slate-900/95 backdrop-blur-sm p-6 overflow-y-auto">
+                    <h3 class="font-semibold mb-6 flex items-center gap-2">
+                        <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+                        </svg>
+                        Component List
+                    </h3>
+                    
+                    <div class="space-y-2" id="component-list">
+                        <!-- Component items injected by JS -->
+                    </div>
+
+                    <div class="mt-8 pt-6 border-t border-slate-800">
+                        <h3 class="font-semibold mb-4">Manufacturing Specs</h3>
+                        <div class="space-y-3 text-sm">
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Dimensions</span>
+                                <span class="text-white">100 × 80 mm</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Layers</span>
+                                <span class="text-white">2 (1.6mm FR4)</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Copper</span>
+                                <span class="text-white">1 oz</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Min Trace</span>
+                                <span class="text-white">0.25 mm</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Clearance</span>
+                                <span class="text-white">0.2 mm</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 p-4 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
+                        <div class="flex items-center gap-2 text-indigo-400 mb-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span class="text-sm font-medium">DRC Passed</span>
+                        </div>
+                        <p class="text-xs text-slate-400">All design rules checked. Ready for manufacturing.</p>
+                    </div>
+
+                    <button onclick="showPage('manufacturing')" class="w-full mt-6 py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 transition-colors font-semibold text-sm flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                        </svg>
+                        Export Manufacturing Files
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Manufacturing Page -->
+        <section id="page-manufacturing" class="page-section hidden">
+            <div class="max-w-5xl mx-auto px-6 py-12">
+                <div class="mb-8">
+                    <h1 class="text-3xl font-bold mb-2">Manufacturing Package</h1>
+                    <p class="text-slate-400">Complete production-ready files for your PCB fabrication.</p>
+                </div>
+
+                <div class="grid lg:grid-cols-3 gap-8">
+                    <!-- File List -->
+                    <div class="lg:col-span-2 space-y-4">
+                        <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+                            <h3 class="text-lg font-semibold mb-6">Generated Files</h3>
+                            
+                            <div class="space-y-3" id="file-list">
+                                <!-- Files injected by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Fabrication Preview -->
+                        <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+                            <h3 class="text-lg font-semibold mb-4">Fabrication Preview</h3>
+                            <div class="aspect-video bg-slate-800 rounded-lg flex items-center justify-center relative overflow-hidden">
+                                <div class="absolute inset-0 circuit-grid opacity-20"></div>
+                                <div class="text-center z-10">
+                                    <svg class="w-16 h-16 text-slate-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+                                    </svg>
+                                    <p class="text-slate-400">Gerber files ready for fabrication</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Order Panel -->
+                    <div class="space-y-6">
+                        <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800 sticky top-24">
+                            <h3 class="text-lg font-semibold mb-6">Order PCB</h3>
+                            
+                            <div class="space-y-4 mb-6">
+                                <div class="p-4 rounded-lg bg-slate-800/50 border border-slate-700">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-sm text-slate-400">Quantity</span>
+                                        <span class="font-semibold">5 pcs</span>
+                                    </div>
+                                    <input type="range" min="5" max="100" value="5" class="w-full accent-indigo-500">
+                                </div>
+
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="text-slate-400">Lead Time</span>
+                                    <span class="text-emerald-400">5-7 days</span>
+                                </div>
+                                
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="text-slate-400">Shipping</span>
+                                    <span class="text-white">DHL Express</span>
+                                </div>
+
+                                <div class="pt-4 border-t border-slate-800 flex items-center justify-between">
+                                    <span class="text-slate-400">Total Est.</span>
+                                    <span class="text-2xl font-bold text-white">$12.50</span>
+                                </div>
+                            </div>
+
+                            <button onclick="orderPCB()" class="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 transition-colors font-semibold mb-3 flex items-center justify-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>
+                                </svg>
+                                Order from JLCPCB
+                            </button>
+                            
+                            <button onclick="orderPCB('pcbway')" class="w-full py-3 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors font-semibold border border-slate-700 flex items-center justify-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+                                </svg>
+                                Order from PCBWay
+                            </button>
+                        </div>
+
+                        <!-- Manufacturing Steps -->
+                        <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+                            <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Process</h3>
+                            <div class="space-y-0">
+                                <div class="manufacturing-step completed pb-6">
+                                    <div class="text-sm font-medium text-white">Design Validation</div>
+                                    <div class="text-xs text-slate-500">ERC/DRC passed</div>
+                                </div>
+                                <div class="manufacturing-step completed pb-6">
+                                    <div class="text-sm font-medium text-white">Gerber Export</div>
+                                    <div class="text-xs text-slate-500">RS-274X format</div>
+                                </div>
+                                <div class="manufacturing-step completed pb-6">
+                                    <div class="text-sm font-medium text-white">Drill Files</div>
+                                    <div class="text-xs text-slate-500">Excellon format</div>
+                                </div>
+                                <div class="manufacturing-step pb-6">
+                                    <div class="text-sm font-medium text-white">Pick & Place</div>
+                                    <div class="text-xs text-slate-500">Centroid file ready</div>
+                                </div>
+                                <div class="manufacturing-step">
+                                    <div class="text-sm font-medium text-white">Fabrication</div>
+                                    <div class="text-xs text-slate-500">Awaiting order</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // Global State
+        let currentPage = 'landing';
+        let selectedComponents = new Set(['esp32', 'rfid', 'hx711', 'servo', 'lcd']);
+        let scene, camera, renderer, controls;
+        let pcbGroup, componentsGroup, tracesGroup;
+        let raycaster, mouse;
+        let componentMeshes = [];
+        
+        const componentsData = [
+            { id: 'esp32', name: 'ESP32-DevKitC', type: 'mcu', color: 0x6366f1, pos: [0, 0, 1.6], size: [18, 30, 3], desc: 'WiFi/Bluetooth MCU' },
+            { id: 'rfid', name: 'RFID-RC522', type: 'sensor', color: 0xec4899, pos: [25, 15, 1.6], size: [15, 25, 2], desc: '13.56MHz Reader' },
+            { id: 'hx711', name: 'HX711', type: 'sensor', color: 0x10b981, pos: [-20, -15, 1.6], size: [10, 15, 1.5], desc: 'Load Cell Amp' },
+            { id: 'servo', name: 'Servo Conn', type: 'actuator', color: 0xf59e0b, pos: [30, -20, 1.6], size: [8, 12, 2], desc: 'MG996R Driver' },
+            { id: 'lcd', name: 'LCD I2C', type: 'interface', color: 0x3b82f6, pos: [0, 30, 1.6], size: [12, 20, 2], desc: '16x2 Display' },
+            { id: 'reg', name: 'AMS1117-3.3', type: 'power', color: 0xef4444, pos: [-25, 20, 1.6], size: [7, 10, 1.5], desc: 'Voltage Reg' }
+        ];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            renderComponentGrid();
+            updateSelectedCount();
+            initThreeJS();
+            renderFileList();
+        });
+
+        // Navigation
+        function showPage(page) {
+            document.querySelectorAll('.page-section').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`page-${page}`).classList.remove('hidden');
+            currentPage = page;
+            
+            if (page === 'viewer') {
+                setTimeout(() => {
+                    if (!renderer) initThreeJS();
+                    else renderer.setSize(document.getElementById('pcb-viewer').clientWidth, document.getElementById('pcb-viewer').clientHeight);
+                }, 100);
+            }
+            
+            window.scrollTo(0, 0);
+        }
+
+        function startDesign() {
+            showPage('design');
+        }
+
+        // Component Selection
+        function renderComponentGrid() {
+            const grid = document.getElementById('component-grid');
+            const componentDetails = {
+                esp32: { icon: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z', title: 'ESP32-DevKitC', specs: { voltage: '3.3V/5V', pins: '38 GPIO', flash: '4MB' }, desc: 'WiFi/Bluetooth microcontroller' },
+                rfid: { icon: 'M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0', title: 'RFID-RC522', specs: { voltage: '3.3V', freq: '13.56MHz', range: '60mm' }, desc: 'NFC card authentication' },
+                hx711: { icon: 'M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3', title: 'HX711', specs: { voltage: '5V', res: '24-bit', ch: '2' }, desc: 'Load cell amplifier' },
+                servo: { icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z', title: 'MG996R Servo', specs: { voltage: '6V', torque: '15kg/cm', curr: '2.5A' }, desc: 'High-torque servo motor' },
+                lcd: { icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', title: 'I2C LCD 16x2', specs: { voltage: '5V', iface: 'I2C', addr: '0x27' }, desc: 'Character display' }
+            };
+
+            grid.innerHTML = Object.entries(componentDetails).map(([id, data]) => `
+                <div onclick="toggleComponent('${id}')" 
+                     class="component-card ${selectedComponents.has(id) ? 'selected' : ''} p-4 rounded-xl border-2 cursor-pointer bg-slate-800/30 ${selectedComponents.has(id) ? 'border-indigo-500' : 'border-slate-700'}">
+                    <div class="flex items-start justify-between mb-3">
+                        <div class="p-2 rounded-lg ${selectedComponents.has(id) ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-700 text-slate-400'}">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${data.icon}"/>
+                            </svg>
+                        </div>
+                        ${selectedComponents.has(id) ? '<svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>' : ''}
+                    </div>
+                    <h4 class="font-semibold mb-1 text-white">${data.title}</h4>
+                    <p class="text-sm text-slate-400 mb-3">${data.desc}</p>
+                    <div class="flex flex-wrap gap-2">
+                        ${Object.entries(data.specs).map(([k, v]) => `
+                            <span class="text-xs px-2 py-1 rounded bg-slate-950 text-slate-300 border border-slate-800">${k}: ${v}</span>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleComponent(id) {
+            if (selectedComponents.has(id)) {
+                selectedComponents.delete(id);
+            } else {
+                selectedComponents.add(id);
+            }
+            renderComponentGrid();
+            updateSelectedCount();
+        }
+
+        function updateSelectedCount() {
+            document.getElementById('selected-count').textContent = `${selectedComponents.size} selected`;
+        }
+
+        // PCB Generation Simulation
+        async function generatePCB() {
+            const btn = document.getElementById('generate-btn');
+            const icon = document.getElementById('generate-icon');
+            const text = document.getElementById('generate-text');
+            const progressSection = document.getElementById('progress-section');
+            const progressBar = document.getElementById('progress-bar');
+            const logContainer = document.getElementById('log-container');
+            
+            btn.disabled = true;
+            progressSection.classList.remove('hidden');
+            
+            const steps = [
+                { msg: 'Initializing Kimi K2.5 Researcher...', progress: 10, delay: 800 },
+                { msg: 'Researching ESP32-DevKitC specifications...', progress: 20, delay: 1200 },
+                { msg: 'Validating RFID-RC522 voltage levels (3.3V)...', progress: 30, delay: 1000 },
+                { msg: 'Checking HX711 load cell compatibility...', progress: 40, delay: 800 },
+                { msg: 'Analyzing servo power requirements (2.5A)...', progress: 50, delay: 1000 },
+                { msg: 'Generating SKiDL netlist...', progress: 60, delay: 1500 },
+                { msg: 'Adding decoupling capacitors (100nF, 10uF)...', progress: 70, delay: 800 },
+                { msg: 'Inserting flyback diode for servo...', progress: 75, delay: 600 },
+                { msg: 'Creating EMI-optimized layout strategy...', progress: 85, delay: 1200 },
+                { msg: 'Running Electrical Rules Check...', progress: 90, delay: 1000 },
+                { msg: 'Exporting KiCad 9.0 files...', progress: 95, delay: 800 },
+                { msg: 'Generating Gerber RS-274X...', progress: 100, delay: 1000 }
+            ];
+            
+            for (const step of steps) {
+                await new Promise(r => setTimeout(r, step.delay));
+                
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log-entry flex items-center gap-2 text-slate-300';
+                logEntry.innerHTML = `
+                    <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    <span>${step.msg}</span>
+                `;
+                logContainer.appendChild(logEntry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+                
+                progressBar.style.width = `${step.progress}%`;
+                
+                // Animate icon
+                icon.style.transform = `rotate(${step.progress * 3.6}deg)`;
+            }
+            
+            text.textContent = 'Complete!';
+            icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>';
+            icon.style.transform = 'none';
+            
+            setTimeout(() => {
+                showPage('viewer');
+                btn.disabled = false;
+                text.textContent = 'Generate PCB';
+                icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>';
+                progressSection.classList.add('hidden');
+                progressBar.style.width = '0';
+                logContainer.innerHTML = '';
+            }, 1500);
+        }
+
+        // Three.js 3D Viewer
+        function initThreeJS() {
+            const container = document.getElementById('pcb-viewer');
+            const canvas = document.getElementById('three-canvas');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+            
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(0, -80, 60);
+            
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxDistance = 150;
+            controls.minDistance = 30;
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 2);
+            scene.add(ambientLight);
+            
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(50, 50, 50);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+            
+            const pointLight = new THREE.PointLight(0x6366f1, 0.5);
+            pointLight.position.set(-50, -50, 50);
+            scene.add(pointLight);
+            
+            // PCB Group
+            pcbGroup = new THREE.Group();
+            scene.add(pcbGroup);
+            
+            // PCB Board
+            const boardGeometry = new THREE.BoxGeometry(80, 60, 1.6);
+            const boardMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x1e293b,
+                roughness: 0.4,
+                metalness: 0.1
+            });
+            const board = new THREE.Mesh(boardGeometry, boardMaterial);
+            board.receiveShadow = true;
+            pcbGroup.add(board);
+            
+            // Copper layers
+            const copperGeo = new THREE.BoxGeometry(78, 58, 0.1);
+            const copperMat = new THREE.MeshStandardMaterial({ 
+                color: 0xb87333,
+                metalness: 0.8,
+                roughness: 0.2
+            });
+            const topCopper = new THREE.Mesh(copperGeo, copperMat);
+            topCopper.position.z = 0.85;
+            pcbGroup.add(topCopper);
+            
+            // Components
+            componentsGroup = new THREE.Group();
+            pcbGroup.add(componentsGroup);
+            
+            componentsData.forEach(comp => {
+                const geometry = new THREE.BoxGeometry(...comp.size);
+                const material = new THREE.MeshStandardMaterial({ 
+                    color: comp.color,
+                    emissive: comp.color,
+                    emissiveIntensity: 0.2
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(...comp.pos);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                mesh.userData = comp;
+                componentsGroup.add(mesh);
+                componentMeshes.push(mesh);
+                
+                // Add label
+                const labelDiv = document.createElement('div');
+                labelDiv.className = 'text-xs font-bold text-white bg-slate-900/80 px-1 rounded';
+                labelDiv.textContent = comp.id;
+                // Note: In real implementation, use CSS2DRenderer for labels
+            });
+            
+            // Traces (simplified)
+            tracesGroup = new THREE.Group();
+            pcbGroup.add(tracesGroup);
+            
+            const traceMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+            
+            // ESP32 to RFID traces
+            const tracePoints1 = [
+                new THREE.Vector3(5, 5, 0.9),
+                new THREE.Vector3(15, 10, 0.9),
+                new THREE.Vector3(25, 15, 0.9)
+            ];
+            const traceGeo1 = new THREE.BufferGeometry().setFromPoints(tracePoints1);
+            const trace1 = new THREE.Line(traceGeo1, traceMaterial);
+            tracesGroup.add(trace1);
+            
+            // ESP32 to HX711 traces
+            const tracePoints2 = [
+                new THREE.Vector3(-5, -5, 0.9),
+                new THREE.Vector3(-12, -10, 0.9),
+                new THREE.Vector3(-20, -15, 0.9)
+            ];
+            const traceGeo2 = new THREE.BufferGeometry().setFromPoints(tracePoints2);
+            const trace2 = new THREE.Line(traceGeo2, traceMaterial);
+            tracesGroup.add(trace2);
+            
+            // Grid helper
+            const gridHelper = new THREE.GridHelper(200, 40, 0x334155, 0x1e293b);
+            gridHelper.position.z = -2;
+            pcbGroup.add(gridHelper);
+            
+            // Raycaster for mouse interaction
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            
+            canvas.addEventListener('mousemove', onMouseMove);
+            
+            animate();
+            renderComponentList();
+        }
+
+        function onMouseMove(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(componentMeshes);
+            
+            const tooltip = document.getElementById('component-tooltip');
+            
+            if (intersects.length > 0) {
+                const comp = intersects[0].object.userData;
+                tooltip.style.display = 'block';
+                tooltip.style.left = event.clientX + 10 + 'px';
+                tooltip.style.top = event.clientY + 10 + 'px';
+                document.getElementById('tooltip-name').textContent = comp.name;
+                document.getElementById('tooltip-id').textContent = comp.id;
+                document.getElementById('tooltip-pos').textContent = `Pos: (${comp.pos[0]}, ${comp.pos[1]})mm`;
+                document.body.style.cursor = 'pointer';
+                
+                // Highlight
+                intersects[0].object.material.emissiveIntensity = 0.5;
+            } else {
+                tooltip.style.display = 'none';
+                document.body.style.cursor = 'default';
+                componentMeshes.forEach(mesh => {
+                    mesh.material.emissiveIntensity = 0.2;
+                });
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function toggleLayer(layer) {
+            const btn = document.getElementById(`btn-${layer}`);
+            btn.classList.toggle('active');
+            
+            if (layer === 'traces') {
+                tracesGroup.visible = !tracesGroup.visible;
+            } else if (layer === 'top') {
+                componentsGroup.visible = !componentsGroup.visible;
+            } else if (layer === 'bottom') {
+                // Toggle bottom layer visibility
+            }
+        }
+
+        function resetView() {
+            camera.position.set(0, -80, 60);
+            controls.reset();
+        }
+
+        function renderComponentList() {
+            const list = document.getElementById('component-list');
+            list.innerHTML = componentsData.map(comp => `
+                <div class="p-3 rounded-lg bg-slate-800/50 border border-slate-700 hover:border-indigo-500/50 transition-all cursor-pointer group" onclick="focusComponent('${comp.id}')">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="font-mono text-sm text-indigo-400">${comp.id}</span>
+                        <span class="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300">${comp.type}</span>
+                    </div>
+                    <div class="text-sm font-medium text-white group-hover:text-indigo-300 transition-colors">${comp.name}</div>
+                    <div class="text-xs text-slate-500 mt-1">${comp.desc}</div>
+                </div>
+            `).join('');
+        }
+
+        function focusComponent(id) {
+            const comp = componentsData.find(c => c.id === id);
+            if (comp && camera) {
+                const targetPos = new THREE.Vector3(comp.pos[0], comp.pos[1], comp.pos[2] + 20);
+                // Smooth camera animation would go here
+                camera.position.copy(targetPos);
+                controls.target.set(comp.pos[0], comp.pos[1], comp.pos[2]);
+            }
+        }
+
+        // Manufacturing
+        function renderFileList() {
+            const files = [
+                { name: 'GranX_Smart_Grain_ATM.kicad_pcb', type: 'PCB Design', size: '2.4 MB', icon: 'box' },
+                { name: 'GranX_Smart_Grain_ATM.kicad_sch', type: 'Schematic', size: '156 KB', icon: 'document' },
+                { name: 'Gerbers.zip', type: 'Manufacturing', size: '1.8 MB', icon: 'archive' },
+                { name: 'bom.csv', type: 'Bill of Materials', size: '12 KB', icon: 'table' },
+                { name: 'pos.csv', type: 'Pick & Place', size: '8 KB', icon: 'location' },
+                { name: 'drill.drl', type: 'Drill File', size: '4 KB', icon: 'circle' }
+            ];
+            
+            const icons = {
+                box: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
+                document: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+                archive: 'M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4',
+                table: 'M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z',
+                location: 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z',
+                circle: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z'
+            };
+            
+            document.getElementById('file-list').innerHTML = files.map(file => `
+                <div class="flex items-center justify-between p-4 rounded-lg bg-slate-800/30 border border-slate-700 hover:border-indigo-500/30 transition-all group">
+                    <div class="flex items-center gap-4">
+                        <div class="p-2 rounded-lg bg-slate-700 text-slate-400 group-hover:text-indigo-400 group-hover:bg-indigo-500/10 transition-colors">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${icons[file.icon]}"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="font-medium text-white text-sm">${file.name}</div>
+                            <div class="text-xs text-slate-500">${file.type} • ${file.size}</div>
+                        </div>
+                    </div>
+                    <button class="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function orderPCB(vendor = 'jlcpcb') {
+            const url = vendor === 'jlcpcb' 
+                ? 'https://cart.jlcpcb.com/quote?fileurl=https://bittrace.io/api/download/gerber'
+                : 'https://www.pcbway.com/orderonline.aspx';
+            
+            window.open(url, '_blank');
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            if (camera && renderer) {
+                const container = document.getElementById('pcb-viewer');
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            }
+        });
+    </script>
+</body>
+</html>
